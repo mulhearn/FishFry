@@ -32,7 +32,7 @@ def unpack_all(filename):
         py        = np.array([],dtype="u2")
         highest   = np.array([],dtype="u2")
         region    = np.array([],dtype="u2")
-        timestamp = np.array([],dtype="u4")
+        nanostamp = np.array([],dtype="u4")
         millistamp = np.array([],dtype="u4")
         dropped = 0
         images = 0
@@ -54,15 +54,15 @@ def unpack_all(filename):
             py      = np.append(py, region_data[py_mask])
             highest = np.append(highest, region_data[h_mask])
             region  = np.append(region, region_data[region_mask])
-            timestamp = np.append(timestamp, np.full(num_region, ts))
+            nanostamp = np.append(nanostamp, np.full(num_region, ts))
             millistamp = np.append(millistamp, np.full(num_region, ms))
         region = np.reshape(region,(-1,region_size))
         header = np.append(header, threshold)
         header = np.append(header, prescale)
-        return header,px,py,highest,region,timestamp,millistamp,images,dropped
+        return header,px,py,highest,region,nanostamp,millistamp,images,dropped
 
 def unpack_header(filename):
-    header,px,py,highest,region,images,dropped = unpack_all(filename)
+    header,px,py,highest,region,nanostamp,millistamp,images,dropped= unpack_all(filename)
     return header
 
 def interpret_header(header, param):    

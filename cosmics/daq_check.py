@@ -2,6 +2,7 @@
 
 import sys
 import argparse
+import re
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -9,122 +10,134 @@ import unpack_hist as hist
 import unpack_trigger as trigger
 
 from calibrate import *
+from plotting import mark_plot
+
+ref_images = 0;
+ref_hist = None;
+
+trig_images = None;
+trig_hist   = [];
+trig_label  = []; 
+
+total_exposure = 0
 
 def process_hist(filename, args):
-
+    global ref_images, ref_hist
     # load data:
     header,hist_uncal,hist_nohot,hist_calib = hist.unpack_all(filename)
     images = hist.interpret_header(header, "images")
-    width  = hist.interpret_header(header, "width")
-    height = hist.interpret_header(header, "height")
-
     hist_prescale = hist.interpret_header(header, "hist_prescale")
 
-    norm = hist_prescale / (float(width) * float(height) * float(images))
-    hist_uncal = hist_uncal.astype(float)
-    hist_calib = hist_calib.astype(float)
+    ref_images += images / hist_prescale
 
-    print hist_uncal.size
-    print hist_calib.size
-    print hist_nohot.size
-
-        
-    err_nohot = hist_nohot**0.5
-    err_calib = hist_calib**0.5
-    
-    # scale counts to a rate:
-    hist_nohot = hist_nohot * norm
-    hist_calib = hist_calib * norm
-    err_nohot = err_nohot * norm
-    err_calib = err_calib * norm
-
-    cbins = np.arange(hist_calib.size)
+    #width  = hist.interpret_header(header, "width")
+    #height = hist.interpret_header(header, "height")
 
     if (args.calib):
-        return cbins, hist_calib, err_calib;
+        add_hist = hist_calib.astype(float)
     else:
-        return cbins, hist_nohot, err_nohot;
+        add_hist = hist_nohot.astype(float)
 
-def process_trig(filename,args,ref_bins, ref_hist, ref_err):
+    if (ref_hist == None):
+        ref_hist = add_hist.astype(float)
+    else:
+        ref_hist = ref_hist + add_hist.astype(float)
+
+
+def process_trig(filename,args):
+    global trig_images, trig_hist, total_exposure
     header,px,py,highest,region,timestamp,millistamp,images,dropped = trigger.unpack_all(filename)
-    trigger.show_header(header)
     num_zerobias = trigger.interpret_header(header, "num_zerobias")
-    width  = trigger.interpret_header(header, "width")
-    height = trigger.interpret_header(header, "height")
-
-    if (args.calib):
-        dx = trigger.interpret_header(header,"region_dx")
-        dy = trigger.interpret_header(header,"region_dy")
-        region = calibrate_region(px,py,region,dx,dy)
-   
-
+    dx = trigger.interpret_header(header,"region_dx")
+    dy = trigger.interpret_header(header,"region_dy")
+    center_index = dx + dy + 2*dx*dy
+    exposure = trigger.interpret_header(header,"exposure") * 1E-9
+    total_exposure += exposure * images
 
     threshold,prescale = trigger.get_trigger(header)
 
-    print "images:        ", images
-    print "width:         ", width
-    print "height:        ", height
-    print "num_zerobias:  ", num_zerobias
-    zb_wgt = 1.0 / (images * num_zerobias);
+    region_calib = calibrate_region(px,py,region,dx,dy)
+    if (args.calib):
+        region = region_calib
+    else:
+        region = calibrate_region(px,py,region,dx,dy,remove_hot_only=True)
 
+    # allocate number of prescales plus one (for zerobias) prescaled image counts:
+    if (trig_images == None):
+        trig_images = np.zeros(prescale.size+1, dtype=float)
+        print "thresholds:  ", threshold
+        print "prescales:   ", prescale
+        
+    if (len(trig_hist) == 0):
+        for i in range(prescale.size+1):
+            trig_hist.append(np.zeros(args.max, dtype=float))
 
-    print "zero-bias:  ", np.sum(highest==0)/images
+    if (len(trig_label) == 0):
+        trig_label.append("zero-bias")
+        for i in range(prescale.size):
+            trig_label.append("prescale " + str(prescale[i]))
+
+    # select zero-bias events not included in the trigger sample (calibrated value below lowest threshold)
+    untrig_zerobias = (region_calib[:,center_index] < threshold[0])    
+    h,bins = np.histogram(np.clip(region[untrig_zerobias,center_index],0,args.max), bins=args.max, range=(0,args.max))
+    trig_images[0] += images*float(num_zerobias)/(5328*3000)
+    trig_hist[0] = trig_hist[0]+h
+    
     for i in range(prescale.size):
-        print i, " prescale:  ", prescale[i], ":  ", np.sum(highest==i+1)/images
+        trig_images[i+1] += float(images) / prescale[i]
+        trig = region[(highest==(i+1)),center_index]
+        h,bins = np.histogram(trig, bins=args.max, range=(0,args.max))
+        trig_hist[i+1] = trig_hist[i+1]+h.astype(float)
+    return
 
-    zb = region[(highest==0),12]
-    hzb,bins = np.histogram(np.clip(zb,0,200), bins=200, range=(0,200))
-    errzb = hzb**0.5
-    hzb = hzb * zb_wgt;
-    errzb = errzb * zb_wgt;
-    cbins = bins[:-1] 
+def analysis(args):
+    global ref_hist, ref_images
+    bins = np.arange(0,args.max)+0.5
+    ref_hist = ref_hist[:args.max]
+    ref_hist = ref_hist / ref_images
 
-    trig_hist = []
-    trig_err  = []
+    if (args.combine):
+        combined = np.zeros(args.max, dtype=float)
+        for i in range(trig_images.size):
+            combined = combined + trig_hist[i]/ trig_images[i]
+        plt.plot(bins,combined,"o", label="scaled data")        
+        plt.plot(bins,ref_hist,"r-", label="monitoring histogram")
+    else:
+        plt.plot(bins,ref_hist,"r--", label="monitoring histogram")
+        for i in range(trig_images.size):
+            err = trig_hist[i]**0.5
+            trig_hist[i] = trig_hist[i]/ trig_images[i]
+            err = err / trig_images[i]
+            plt.errorbar(bins,trig_hist[i],yerr=err,fmt="o", label=trig_label[i])        
+        plt.plot(bins,ref_hist,"r--")
 
-    for i in range(prescale.size):
-        ps = prescale[i]
-        print "prescale:  ", ps
-        trig_wgt = float(ps) / (float(images) * float(width) * float(height))
-        print "trig_wgt:  ", trig_wgt;        
-        trig = region[(highest==(1+i)),12]
-        h,bins = np.histogram(np.clip(trig,0,200), bins=200, range=(0,200))
-        err = h**0.5
-        h = h * trig_wgt;
-        err = err * trig_wgt;
-        trig_hist.append(h)
-        trig_err.append(err)
-
-    plt.errorbar(ref_bins,ref_hist,yerr=ref_err,color="black",fmt="--")
-    plt.errorbar(cbins,hzb,yerr=errzb,color="black",fmt="o")
-
-    for i in range(prescale.size):
-        plt.errorbar(cbins,trig_hist[i],yerr=trig_err[i],fmt="o")
-    plt.xlabel("pixel value")
-    plt.ylabel("rate per pixel per image")
     plt.yscale('log')
-    plt.xlim(0,args.max)
+    plt.xlabel("pixel value")
+    plt.ylabel("rate per image")
+    plt.ylim(1E-5,1E9)
+    plt.legend(numpoints=1)
+    mark_plot(0.1,1E-1,"exposure:  " + str(total_exposure) + " s")
+    if (args.calib):
+        mark_plot(0.1,1E-2,"calibrated pixels")
+        plt.xlabel("pixel value [electrons]")
+    else:
+        mark_plot(0.1,1E-2,"uncalibrated pixels")
+        plt.xlabel("pixel value [DN]")
 
+
+    name = "plots/rate"
+    if (args.calib):
+        name = name + "_calib"
+    else: 
+        name = name + "_uncalib"
+    if (args.combine):
+        name = name + "_combined"
+    name = name + "_max_" + str(args.max) + ".pdf"
+    plt.savefig(name)
 
 
     plt.show()
 
-    return 
-
-
-    count = 0
-    for i in range(num_region):
-        h = highest[i];
-        print "px:       ", px[i]
-        print "py:       ", py[i]
-        print "highest:  ", h
-        print "region:   ", region[i]
-        count += 1
-
-    print "images:                   ", images
-    print "total number of regions:  ", num_region
-    print "regions shown:            ", count
-    print "total dropped triggers:   ", dropped
     
 if __name__ == "__main__":
     example_text = '''examples:
@@ -133,15 +146,24 @@ if __name__ == "__main__":
     
     parser = argparse.ArgumentParser(description='Plot rate from Cosmics.', epilog=example_text,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument('hist', metavar='HIST', help='histogram file to process')
-    parser.add_argument('trig', metavar='TRIG', nargs='+', help='trigger file(s) to process')
+    parser.add_argument('files', nargs='+', metavar="FILE", help='histogram and/or trigger file(s) to processs')
     parser.add_argument('--sandbox',action="store_true", help="run sandbox code and exit (for development).")
     parser.add_argument('--calib',action="store_true", help="compare calibrated pixel values.")
-    parser.add_argument('--max',  type=int, default=50,help="maximum pixel value in rate plot (x-axis).")
+    parser.add_argument('--max',  type=int, default=100,help="maximum pixel value in rate plot (x-axis).")
+    parser.add_argument('--combine',action="store_true", help="combine data weighted by prescale factors.")
     args = parser.parse_args()
 
-    print "processing histogram file:  ", args.hist
-    ref_bins, ref_hist, ref_err = process_hist(args.hist,args)
-    for filename in args.trig:
-        print "processing trigger file:  ", filename
-        process_trig(filename, args, ref_bins, ref_hist, ref_err)
+
+    hist_re = re.compile(r".*_hist.*")    
+    for file in args.files:        
+        match = hist_re.match(file)
+        if (match != None):
+            print "processing histogram file:  ", file
+            process_hist(file, args)
+        else:
+            print "processing trigger file:    ", file
+            process_trig(file, args)
+
+    analysis(args)
+    
+

@@ -13,7 +13,7 @@ def _calibrate_load():
 
      return weight,denom
 
-def calibrate_region(px,py,region,dx,dy):
+def calibrate_region(px,py,region,dx,dy,remove_hot_only=False):
      # load the image geometry from the calibrations:
      try:
          geom = np.load("calib/geometry.npz");
@@ -22,8 +22,6 @@ def calibrate_region(px,py,region,dx,dy):
          return
      width  = geom["width"]
      height = geom["height"]
-
-
 
      weight,denom = _calibrate_load()
 
@@ -41,7 +39,9 @@ def calibrate_region(px,py,region,dx,dy):
      pxs = np.clip(pxs, 0, width-1)
      pys = np.clip(pys, 0, height-1)
      ws  = weight[pys,pxs]
-     
+     if (remove_hot_only):
+          ws[ws>0] = 1
+          return region * ws
      return (region * ws)/denom
 
 def calibrate_hot(px,py):
