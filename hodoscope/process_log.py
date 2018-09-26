@@ -72,11 +72,18 @@ def process(filename,args):
     while(1):
         line = input.readline()
         if not line: break
+        #print  "read line:  ", line
+
         match = heartbeat_re.match(line)
         if (match != None):            
             date_str = match.group(1)
             # e.g. 2018-09-14 21:38:50.005481
-            date = datetime.datetime.strptime(date_str, '%Y-%m-%d %H:%M:%S.%f')
+            try:
+                date = datetime.datetime.strptime(date_str, '%Y-%m-%d %H:%M:%S.%f')
+            except:
+                print "line:  ", line
+                print "could not process ", date_str
+                exit(0)
             if (max_time != None):
                 if (date >= max_time):
                     break
@@ -108,7 +115,12 @@ def process(filename,args):
             break
 
         # must be a PMT time:
-        x = int(line)
+        try:
+            x = int(line)
+        except:
+            print "failed to parse line:  \"", line, "\""
+            exit(0)
+
         hits = np.append(hits, x)
 
         if (hits.size == count):
