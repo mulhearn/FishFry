@@ -1,0 +1,23 @@
+
+# set variable needed at detector configuration first:
+/analysis/pixel_depletion 3.0
+/analysis/pixel_width 1120.0
+/analysis/pixel_max_x 10
+/analysis/pixel_max_y 10
+/analysis/gen_theta 0.0
+
+# Initialize kernel
+/run/initialize
+#
+/control/verbose 0
+/run/verbose 0
+/event/verbose 0
+/tracking/verbose 0
+#
+# gamma 1 MeV to the direction (0.,0.,1.)
+#
+/gun/particle mu-
+/gun/energy 100 MeV
+#
+/run/beamOn 100000
+#/run/beamOn 10
