@@ -1,7 +1,7 @@
 
 # set variable needed at detector configuration first:
-/analysis/pixel_depletion 3.0
-/analysis/pixel_width 1120.0
+/analysis/pixel_depletion 1.5
+/analysis/pixel_width 1.12
 /analysis/pixel_max_x 10
 /analysis/pixel_max_y 10
 /analysis/gen_theta 0.0

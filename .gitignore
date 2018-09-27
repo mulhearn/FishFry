@@ -12,3 +12,4 @@ calib
 log*.txt
 LOCAL*
 *.root
+*.dat

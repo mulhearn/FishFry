@@ -1,6 +1,9 @@
 #ifndef Analysis_h
 #define Analysis_h 1
 
+#include <iostream>
+#include <fstream>
+
 #include "globals.hh"
 #include "G4UImessenger.hh"
 #include "G4UserRunAction.hh"
@@ -8,7 +11,7 @@
 #include "G4UserSteppingAction.hh"
 #include "G4VUserActionInitialization.hh"
 
-#define CELL_GRID_SIZE 10
+#define CELL_GRID_SIZE 5
 
 class G4UIcmdWithADouble;
 class G4UIcmdWithAnInteger;
@@ -16,9 +19,6 @@ class G4Step;
 class G4Event;
 class G4Run;
 class G4UIdirectory;
-class TFile;
-class TTree;
-class TH1D;
 class G4LogicalVolume;
 
 class AnalysisActionInit :  public G4VUserActionInitialization {
@@ -43,7 +43,7 @@ class Analysis:
   void   EndRun(const G4Run*);
   void   BeginEvent(const G4Event*);
   void   EndEvent(const G4Event*);
-  void   Book();
+  void   Book(int expected);
   void   Save();
   void   FillNtuple();      
 
@@ -114,9 +114,9 @@ private:
   G4UIcmdWithADouble*   genPhiMaxCmd_;
 
   static Analysis * instance_;
-  TFile * file_;
-  TTree * ntuple_;
   G4LogicalVolume* scoringVolume_;
+
+  std::ofstream * output_;
 };
 
 

@@ -1,9 +1,4 @@
-#include <iostream>
 #include <algorithm>
-
-#include <TH1D.h>
-#include <TFile.h>
-#include <TTree.h>
 
 #include "G4UIdirectory.hh"
 #include "G4Step.hh"
@@ -24,7 +19,6 @@
 
 using namespace std;
 
-
 Analysis * Analysis::instance_ = NULL;
 
 void Analysis::stats::reset(){
@@ -44,8 +38,6 @@ Analysis::Analysis()
   genThetaCmd_(0),
   genThetaMaxCmd_(0),
   genPhiMaxCmd_(0),
-  file_(0),
-  ntuple_(0),
   scoringVolume_(0)
 { 
   // set default values:
@@ -114,6 +106,7 @@ Analysis::Analysis()
   genPhiMaxCmd_->SetDefaultValue (gen_phi_max);  
 
   instance_ = this;
+  output_ = 0;
 }
 
 Analysis::~Analysis()
@@ -127,7 +120,6 @@ Analysis::~Analysis()
   delete genThetaMaxCmd_;
   delete genPhiMaxCmd_;
   delete analysisDir_;
-  if (file_) delete file_;
 }
 
 
@@ -191,62 +183,40 @@ void Analysis::SetNewValue(G4UIcommand * command,G4String arg){
 
 }
 
-void Analysis::Book()
+void Analysis::Book(int expected)
 { 
-  // Creating a tree container to handle histograms and ntuples.
-  // This tree is associated to an output file.
-  //
-  G4String fileName = "pdout.root";
-  file_ = new TFile(fileName,"RECREATE");
-  if (! file_) {
-    G4cout << " Analysis::Book :" 
-           << " problem creating the ROOT TFile "
-           << G4endl;
-    return;
-  }
-  
-  // create ntuple
-  ntuple_ = new TTree("edep", "");
-  ntuple_->Branch("edep",     &evt_.edep, "edep/F");
-  ntuple_->Branch("adep",     &evt_.adep, "adep/F");
-  ntuple_->Branch("cmax",     &evt_.cmax, "cmax/F");
-  ntuple_->Branch("evt_theta", &evt_theta, "evt_theta/F");
-  ntuple_->Branch("evt_phi", &evt_phi, "evt_phi/F");
-  ntuple_->Branch("edep1",     &edep1, "edep/F");
-  ntuple_->Branch("index1",     &index1, "edep/I");
-
   grid_max = (2 * pixel_max_x + 1) * (2 * pixel_max_y + 1);
   grid_edep = new float[grid_max];
 
   cell_max = CELL_GRID_SIZE * CELL_GRID_SIZE;
   cell_edep = new float[cell_max];
 
-  // save full grid:
-  //ntuple_->Branch("grid_max", &grid_max, "grid_max/I");
-  //ntuple_->Branch("grid_edep",grid_edep,"grid_edep[grid_max]/F");
+  output_ = new ofstream();
+  output_->open ("pdout.dat", std::ofstream::out);
 
-  // save reduced grid:
-  ntuple_->Branch("cell_max", &cell_max, "cell_max/I");
-  ntuple_->Branch("cell_edep",cell_edep,"cell_edep[cell_max]/F");
+  int header[] = {4,0,expected, pixel_max_x, pixel_max_y, CELL_GRID_SIZE}; 
 
-  G4cout << "\n----> Output file is open in " << fileName << G4endl;
+  output_->write ((char*)&header, sizeof (header));
+  float x;
+  x = pixel_depletion;
+  output_->write ((char*)&x, sizeof(x));
+  x = slab_depth;
+  output_->write ((char*)&x, sizeof(x));
+
 }
 
 
 void Analysis::Save()
-{ 
-  if (! file_) return;
-  
-  file_->Write();       // Writing the histograms to the file
-  file_->Close();       // and closing the tree (and the file)
-  
+{   
+  if (output_ != 0){
+    output_->close();
+    delete output_;
+    output_ = 0;
+  }
   G4cout << "\n----> Histograms and ntuples are saved\n" << G4endl;
 }
 
 void Analysis::FillNtuple(){
-  if (!ntuple_) return;
-  
-
   //int nx = 2*pixel_max_x+1;
   int ny = 2*pixel_max_y+1;
   
@@ -273,10 +243,12 @@ void Analysis::FillNtuple(){
       cell_edep[itupe]=grid_edep[index];
     }
   }
+  if (output_){
+        
+    output_->write ((char*) cell_edep, sizeof (float)*CELL_GRID_SIZE*CELL_GRID_SIZE);
 
+  }
   
-  
-  ntuple_->Fill();
 }
 
 void Analysis::Step(const G4Step* step)
@@ -339,6 +311,7 @@ void Analysis::Step(const G4Step* step)
     grid_edep[index] += f*edepStep;
   } else {
     cout << "ERROR: grid index out of range!!!\n";
+    cout << "index:  " << index << " grid_max:  " << grid_max << "\n";
   }
 
   if (name == "gamma"){
@@ -401,11 +374,11 @@ void Analysis::EndEvent(const G4Event*)
   }
 }
 
-void Analysis::BeginRun(const G4Run*)
+void Analysis::BeginRun(const G4Run* run)
 { 
   //inform the runManager to save random number seed
   G4RunManager::GetRunManager()->SetRandomNumberStore(false);
-  Analysis::instance()->Book();
+  Analysis::instance()->Book(run->GetNumberOfEventToBeProcessed());
   run_.reset();
   edep_evt = 0;
   adep_evt = 0;
